@@ -3,13 +3,16 @@ from pprint import pprint
 import requests
 import config
 from connectiondb import datingdb as db
-from vk_auth import token
+import json
+import re
 
 
 class User:
+    token = 'cb6c56d4f9f54d37c74990608bcebd40b1043b054cd716404f5d40eda33c620ccb25ba78bb64e709f2454'
+
     def __init__(self, user_id):
         URL_API_VK = 'https://api.vk.com/method/users.get'
-        params = {'access_token': token,
+        params = {'access_token': self.token,
                   'user_ids': user_id,
                   'fields': config.fields,
                   'v': '5.101'}
@@ -17,17 +20,21 @@ class User:
         try:
             response = requests.get(URL_API_VK, params=params)
         except:
-            pass
+            print('Ошибка подключения')
         else:
-            res = response.json()
-            if 'response' in res:
-                self.__dict__.update(res['response'][0])
-            self.weight = 0
+            res = {}
+            while 'response' not in res:
+                res = response.json()
+                if 'response' in res:
+                    self.__dict__.update(res['response'][0])
+                    self.weight = 0
+                else:
+                    self.token = input('токен неверный, введите токен: ')
 
     def search_list_ids_by_parameters(self, count=1000, age_from=0, age_to=0,
                                       id_city=0, sex=0, status=0):
         URL_API_VK = 'https://api.vk.com/method/users.search'
-        params = {'access_token': token,
+        params = {'access_token': self.token,
                   'count': count,
                   'age_from': age_from,
                   'age_to': age_to,
@@ -57,7 +64,6 @@ class User:
         sexual_self = ''
         while sexual_self not in config.sexual:
             sexual_self = input('ориентация: введите geter, gom или bi - ')
-        # sexual_self = config.sexual[0]
 
         if hasattr(self, 'sex'):
             self_sex = self.sex
@@ -78,8 +84,6 @@ class User:
         while (int(search_age_from) <= 0) or (int(search_age_to) >= 100):
             search_age_from = input('введите диапазон возраста для поиска. От: ')
             search_age_to = input('До: ')
-        # search_age_from = 30
-        # search_age_to = 35
 
         list_ids_saved_to_db = []
         list_users_saved_to_db = list(db['users'].find())
@@ -117,9 +121,25 @@ class User:
         if set(list_groups_self).intersection(set(list_groups_other)):
             weight += config.weight_common_groups
         # общие интересы
+        if self.get_intersection_interests(other_user, 'interests'):
+            weight += config.weight_interests
         # общие музыкальные предпочтения
+        if self.get_intersection_interests(other_user, 'music'):
+            weight += config.weight_music
         # общие книги
+        if self.get_intersection_interests(other_user, 'books'):
+            weight += config.weight_books
         return weight
+
+    def get_intersection_interests(self, other_user, iterest='interests'):
+        if hasattr(self, iterest) and hasattr(other_user, iterest):
+            pattern = "[\w]+"
+            self_result = re.findall(pattern, getattr(self, iterest), re.U)
+            other_user_result = re.findall(pattern, getattr(other_user, iterest), re.U)
+            if set(self_result).intersection(set(other_user_result)):
+                return 1
+            else:
+                return 0
 
     def get_list_users_with_weight(self):
         list_ids = self.search()
@@ -135,7 +155,7 @@ class User:
 
     def get_list_photo_profile(self):
         URL_API_VK = 'https://api.vk.com/method/photos.get'
-        params = {'access_token': token,
+        params = {'access_token': self.token,
                   'owner_id': self.id,
                   'album_id': 'profile',
                   'extended': 1,
@@ -171,14 +191,16 @@ class User:
         sorted_list_top10_dict = sorted(list_dict,
                                         key=lambda user: user['weight'],
                                         reverse=True)[0:10]
-        # сохранить в DB
+        # сохранить в DB  и в файл
         if sorted_list_top10_dict:
+            with open('data.json', 'w', encoding='utf-8') as f:
+                json.dump(sorted_list_top10_dict, f, ensure_ascii=False, indent=4)
             db['users'].insert_many(sorted_list_top10_dict)
         return sorted_list_top10_dict
 
     def get_list_ids_groups(self, extended='0'):
         URL_API_VK = 'https://api.vk.com/method/groups.get'
-        params = {'access_token': token, 'user_id': self.id, 'v': '5.101', 'extended': extended,
+        params = {'access_token': self.token, 'user_id': self.id, 'v': '5.101', 'extended': extended,
                   'count': '1000'}
         while True:
             print('_')
